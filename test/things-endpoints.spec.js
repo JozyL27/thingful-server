@@ -1,6 +1,7 @@
 const knex = require('knex')
 const app = require('../src/app')
 const helpers = require('./test-helpers')
+const jwt = require('jsonwebtoken')
 
 describe('Things Endpoints', function() {
   let db
@@ -11,9 +12,17 @@ describe('Things Endpoints', function() {
     testReviews,
   } = helpers.makeThingsFixtures()
 
-  function makeAuthHeader(user) {
-    const token = Buffer.from(`${user.user_name}:${user.password}`).toString('base64')
-    return `Basic ${token}`
+  // function makeAuthHeader(user) {
+  //   const token = Buffer.from(`${user.user_name}:${user.password}`).toString('base64')
+  //   return `Basic ${token}`
+  // }
+
+  function makeAuthHeader(user, secret = process.env.JWT_SECRET) {
+    const token = jwt.sign({ user_id: user.id }, secret, {
+      subject: user.user_name,
+      algorithm: 'HS256',
+    })
+    return `Bearer ${token}`
   }
 
   before('make knex instance', () => {
@@ -54,34 +63,29 @@ describe('Things Endpoints', function() {
 
   protectedEndpoints.forEach(endpoint => {
     describe(endpoint.name, () => {
-      it(`responds with 401 'Missing Basic Token' when no basic token`, () => {
+      it(`responds with 401 'Missing Bearer Token' when no bearer token`, () => {
         return supertest(app)
           .get(endpoint.path)
-          .expect(401, { error: `Missing Basic Token`})
+          .expect(401, { error: `Missing Bearer Token`})
       })
 
-      it(`responds 401 'Unauthorized request' when no credentials in token`, () => {
-        const userNoCreds = { user_name: '', password: '' }
+      it(`responds 401 'Unauthorized request' when invalid JWT secret`, () => {
+        const validUser = testUsers[0]
+        const invalidSecret = 'bad-secret'
+
+        // endpoint.method(endpoint.path)
+
         return supertest(app)
           .get(endpoint.path)
-          .set('Authorization', makeAuthHeader(userNoCreds))
+          .set('Authorization', makeAuthHeader(validUser, invalidSecret))
           .expect(401, { error: `Unauthorized request` })
       })
 
-      it(`responds 401 'unauthorized request' when invalid user`, () => {
-        const userInvalidCreds = { user_name: 'user-not', password: 'existy' }
+      it(`responds 401 'unauthorized request' when invalid sub in payload`, () => {
+        const invalidUser = { user_name: 'user-not-existy', id: 1 }
         return supertest(app)
         .get(endpoint.path)
-        .set('Authorization', makeAuthHeader(userInvalidCreds))
-        .expect(401, { error: `Unauthorized request` })
-      })
-
-      it(`responds 401 'Unauthorized request' when invalid password`, () => {
-        const userInvalidPass = { user_name: testUsers[0].user_name, password: 'wrong' }
-
-        return supertest(app)
-        .get(endpoint.path)
-        .set('Authorization', makeAuthHeader(userInvalidPass))
+        .set('Authorization', makeAuthHeader(invalidUser))
         .expect(401, { error: `Unauthorized request` })
       })
     })
